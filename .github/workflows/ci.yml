@@ -1,0 +1,53 @@
+name: eval-ci
+
+# The PR gate. Runs the harness against the deterministic MOCK provider, so it
+# needs no API key and makes no live LLM calls (live runs are nightly — see
+# nightly-eval.yml). The eval gate compares the run to the committed
+# baseline.json and exits non-zero on regression, which fails this check and
+# blocks the PR.
+#
+# Triggered on PRs that touch the prompt, the dataset, the harness, or the
+# baseline. (A regression on a prompt/model change is best caught by the nightly
+# LIVE run; this mock gate guarantees the harness works and the baseline holds.)
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "prompts/**"
+      - "datasets/**"
+      - "src/**"
+      - "tests/**"
+      - "baseline.json"
+      - "pyproject.toml"
+      - ".github/workflows/ci.yml"
+
+jobs:
+  test-and-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Unit tests (mock provider, no live calls)
+        run: pytest -q
+
+      - name: Eval regression gate (mock provider)
+        env:
+          EVAL_PROVIDER: mock
+        run: eval run
+
+      - name: Upload HTML report
+        if: always() # upload even when the gate fails — that's when you want it
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: reports/
+          if-no-files-found: warn

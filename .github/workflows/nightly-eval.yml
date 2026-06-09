@@ -1,0 +1,49 @@
+name: nightly-live-eval
+
+# Optional LIVE eval against the real Anthropic API. Kept OFF the per-PR path on
+# purpose: live calls cost money and are non-deterministic, so per the harness's
+# testing strategy they run nightly (and on manual dispatch), not on every push.
+#
+# Self-skips unless an ANTHROPIC_API_KEY repository secret is configured, so the
+# workflow is safe to commit with no secret set. It reports (and validates the
+# judge) but does not gate against the committed mock baseline — a team running
+# this for real would keep a separate live baseline.json.
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily
+  workflow_dispatch: {}
+
+jobs:
+  live-eval:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Live eval (report only, no gate against the mock baseline)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_PROVIDER: anthropic
+        run: eval run --no-gate
+
+      - name: Validate the judge against human labels
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_PROVIDER: anthropic
+        run: eval judge-validate
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-eval-report
+          path: reports/
+          if-no-files-found: warn

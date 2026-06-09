@@ -1,5 +1,7 @@
 # LLM Evaluation Harness — "CI for Prompts"
 
+[![eval-ci](https://github.com/AndreiTita99/LLM-Eval-Harness/actions/workflows/ci.yml/badge.svg)](https://github.com/AndreiTita99/LLM-Eval-Harness/actions/workflows/ci.yml)
+
 > Automated evals for an LLM prompt, with **regression gating wired into CI** — so a
 > prompt or model change that quietly makes quality worse **cannot be merged**.
 > Think *unit tests + CI, but for non-deterministic AI behaviour.*
@@ -191,6 +193,24 @@ The LLM-as-judge is the part most teams get wrong, so the mitigations are explic
 eval judge-validate     # prints judge↔human agreement on datasets/judge_labeled.yaml
 ```
 
+## CI
+
+Two GitHub Actions workflows (`.github/workflows/`):
+
+- **`eval-ci`** — the per-PR gate. On pushes to `main` and PRs touching `prompts/`,
+  `datasets/`, `src/`, `tests/`, or `baseline.json`, it installs the package, runs the
+  unit tests, then runs `eval run` against the **mock provider** (no API key, no live
+  calls) gating on the committed `baseline.json`. A regression makes `eval run` exit
+  non-zero, which fails the check and blocks the PR. The HTML report is uploaded as a
+  build artifact — including when the gate fails, which is exactly when you want it.
+- **`nightly-live-eval`** — optional. Runs the **live** eval against the real Anthropic
+  API on a daily schedule (and on manual dispatch). It self-skips unless an
+  `ANTHROPIC_API_KEY` repository secret is set, so it's safe to commit with no secret.
+  Live, non-deterministic runs belong nightly, not on every PR.
+
+This split mirrors the harness's testing strategy: the mock keeps CI deterministic,
+free, and secret-less; live model behaviour is exercised nightly.
+
 ## Project status
 
 Built in phases; each phase ends with something runnable.
@@ -212,7 +232,9 @@ Built in phases; each phase ends with something runnable.
 - [x] **Phase 6 — Reporting.** `report.json` + a self-contained `report.html`
       (Jinja2) from one data source: gate banner, diff-vs-baseline, per-scorer and
       flaky breakdown, property cards, and per-case model output + judge reasoning.
-- [ ] Phase 7 — GitHub Actions workflow that gates PRs touching prompts/datasets.
+- [x] **Phase 7 — CI.** `eval-ci` workflow gates PRs (mock provider, no secrets) on
+      the committed baseline and uploads the HTML report; optional `nightly-live-eval`
+      runs the real API nightly. Green badge above.
 - [ ] Phase 8 — Polish: judge-validation writeup, batch-API cost note, screenshots.
 
 ## Deliberately out of scope

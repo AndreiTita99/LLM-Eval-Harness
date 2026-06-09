@@ -169,7 +169,35 @@ cases, lets me add scorers without touching the runner, and makes the
 - **Phase 6 (done):** `report.json` + self-contained `report.html` (Jinja2) from one
   `build_report()` dict — gate banner, diff-vs-baseline, per-scorer/flaky breakdown,
   property cards, per-case model output + judge reasoning. Written to `reports/`.
-- Phases 7–8: see README roadmap.
+- **Phase 7 (done):** two GitHub Actions workflows — `eval-ci` (per-PR gate, mock
+  provider, no secrets, uploads report, exit-1 blocks the PR) and optional
+  `nightly-live-eval` (real API, scheduled, self-skips without a secret). Green badge.
+- Phase 8: see README roadmap.
+
+## Design decisions log (Phase 7 additions)
+
+- **Per-PR CI uses the mock; live runs are nightly.** Mirrors the testing strategy:
+  CI must be deterministic, free, and secret-less, so every PR runs the mock gate. Live,
+  non-deterministic, paid runs happen on a schedule. This is the standard way to keep an
+  eval suite affordable — fast mock/subset on the PR, full/live sweep nightly.
+- **The integration with CI is just the exit code.** `eval run` returns 1 on regression;
+  the workflow step fails; the branch is blocked. No bespoke Action, no service.
+- **Report uploaded with `if: always()`.** You most want the diff-vs-baseline report on
+  the run that *failed* — so it uploads regardless of the gate outcome.
+- **Nightly self-skips without a secret** (`if: ${{ secrets.ANTHROPIC_API_KEY != '' }}`),
+  so the workflow is safe to commit publicly and just no-ops until someone wires a key.
+- **Honest limitation to raise yourself:** because the mock ignores the prompt text, the
+  mock gate can't catch a *semantic* prompt regression — that's what the nightly live run
+  (or a live baseline) is for. The mock gate proves the harness runs and the baseline
+  holds; it's a smoke + structural-regression gate, not a substitute for live evals.
+
+## Talking point: how would you make the PR gate catch real prompt regressions?
+
+Set `ANTHROPIC_API_KEY` as a repo secret and run a small **live PR-gate subset** against
+a committed *live* baseline (a handful of cases, sync path), with the full/expensive set
+nightly via the Batch API. The architecture already supports it — flip `EVAL_PROVIDER`,
+point `EVAL_BASELINE_PATH` at the live baseline. I kept the default per-PR gate on the
+mock so the public repo stays deterministic and free.
 
 ## Design decisions log (Phase 6 additions)
 
