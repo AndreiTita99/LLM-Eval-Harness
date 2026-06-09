@@ -73,7 +73,7 @@ def test_registry_resolves_known_and_misses_unknown():
 
 
 def test_run_skips_truly_unregistered_scorers_and_aggregates():
-    config = Config(provider="mock")
+    config = Config(provider="mock", repeats=1)
     cases = [
         EvalCase(
             id="t1",
@@ -84,9 +84,12 @@ def test_run_skips_truly_unregistered_scorers_and_aggregates():
     ]
     summary = run(cases, system_prompt="triage", config=config)
 
-    # An unknown scorer is skipped; the structural scorers still run.
+    # An unknown scorer is skipped; the structural scorers and the universal
+    # property scorers still run.
     assert summary.skipped_scorers == ["nonexistent_scorer"]
-    assert {s.scorer for s in summary.scores} == {"category_exact", "urgency_schema", "response_schema"}
+    assert {s.scorer for s in summary.scores} == {
+        "category_exact", "urgency_schema", "response_schema", "format_valid", "no_refusal",
+    }
 
     by_scorer = {s.scorer: s for s in summary.by_scorer()}
     assert by_scorer["response_schema"].pass_rate == 1.0

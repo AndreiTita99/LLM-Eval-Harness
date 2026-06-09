@@ -89,6 +89,7 @@ All run settings are environment-driven (see `src/config.py`):
 | `EVAL_REPEATS` | `3` | How many times to run each case (variance handling) |
 | `EVAL_SUT_TEMPERATURE` | unset | Only sent to models that accept it |
 | `EVAL_JUDGE_THRESHOLD` | `2` | Minimum rubric score (1–3) for the summary judge to pass |
+| `EVAL_MOCK_FLAKINESS` | `0.0` | Mock-only: probability the mock perturbs its output, to demo variance |
 
 ## Scorers
 
@@ -99,10 +100,28 @@ to scorer instances. Three families:
 |---|---|---|
 | **Structural** (deterministic, cheap) | ✅ Phase 2 | `category_exact` (exact match), `urgency_schema` (enum validity), `response_schema` (whole-response validation); `contains` primitive available |
 | **LLM-as-judge** (rubric-graded free text) | ✅ Phase 3 | `summary_judge` — grades the one-line summary 1–3 against a rubric, on a cheaper model |
-| **Property** (latency, cost, format, refusal) | ⏳ Phase 4 | — |
+| **Property** (latency, cost, format, refusal) | ✅ Phase 4 | `format_valid` + `no_refusal` (applied to *every* call); latency p95 and token cost reported as metrics |
 
 Scorers that aren't registered yet are **skipped, not failed**, and reported as such —
-so the dataset can declare the full intended set from day one.
+so the dataset can declare the full intended set from day one. Structural and judge
+scorers are **declared per case** (they need expected values); property scorers are
+**universal** (intrinsic to any call) and run on every result automatically.
+
+### Variance handling
+
+LLM outputs aren't deterministic, so a single sample is a weak signal. Each case is
+run **N times** (`EVAL_REPEATS`, default 3) and the harness reports **pass-rate per
+case** and flags **flaky** cases — ones that neither always pass nor always fail. A
+case that passes 3/5 is a different signal than 5/5, and the harness surfaces that
+instead of hiding it behind one lucky (or unlucky) run.
+
+The mock provider is deterministic by default (so tests are reproducible). Set
+`EVAL_MOCK_FLAKINESS` to make it genuinely vary across repeats — seeded by
+`(input, repeat)`, so a run is still reproducible — to see variance handling in action:
+
+```bash
+EVAL_MOCK_FLAKINESS=0.34 EVAL_REPEATS=5 eval run    # surfaces flaky cases
+```
 
 ### The judge, done responsibly
 
@@ -133,7 +152,9 @@ Built in phases; each phase ends with something runnable.
 - [x] **Phase 3 — LLM-as-judge.** Rubric-graded `summary_judge` with verbosity/
       self-preference bias guards, an offline mock judge, and `eval judge-validate`
       reporting judge↔human agreement + Cohen's kappa on a hand-labelled set.
-- [ ] Phase 4 — Variance (N repeats, pass-rate) + property metrics (latency, cost).
+- [x] **Phase 4 — Variance + properties.** N repeats with per-case pass-rate and
+      flaky-case detection; universal `format_valid`/`no_refusal` property scorers;
+      latency mean/p95, token totals, and estimated cost reported per run.
 - [ ] Phase 5 — Baseline tracking + regression gating + non-zero exit codes.
 - [ ] Phase 6 — HTML + JSON reports with a diff-vs-baseline section.
 - [ ] Phase 7 — GitHub Actions workflow that gates PRs touching prompts/datasets.

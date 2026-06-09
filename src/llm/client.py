@@ -85,17 +85,29 @@ class AnthropicClient:
         )
 
 
+# Valid triage categories, kept local to avoid importing the scorer registry
+# (which would create an import cycle through the judge).
+_MOCK_CATEGORIES = ["billing", "technical", "account", "shipping", "general"]
+
+
 @dataclass
 class MockClient:
-    """Deterministic offline stand-in.
+    """Offline stand-in for the Anthropic API.
 
     Produces plausible triage JSON from simple keyword heuristics so the full
     pipeline (and pass/fail scoring) runs with no API key. Intentionally
     imperfect — some cases will mis-classify, which is exactly what makes the
     scoring output meaningful in a demo.
+
+    By default it is deterministic (same input -> same output) so tests and CI
+    are reproducible. When `config.mock_flakiness > 0`, each call may perturb the
+    category using an RNG seeded by (input, call index) — non-deterministic
+    *across repeats* but fully reproducible run-to-run, so variance and flaky-case
+    detection have something real to surface.
     """
 
     config: Config
+    _call_counts: dict[str, int] = field(default_factory=dict, repr=False)
 
     def complete(
         self,
@@ -106,9 +118,17 @@ class MockClient:
         max_tokens: int | None = None,
     ) -> LLMResponse:
         import json
+        import random
 
         start = time.perf_counter()
+        call_index = self._call_counts.get(user, 0)
+        self._call_counts[user] = call_index + 1
+
         category = _mock_category(user)
+        if self.config.mock_flakiness > 0:
+            rng = random.Random(f"{user}|{call_index}")
+            if rng.random() < self.config.mock_flakiness:
+                category = rng.choice([c for c in _MOCK_CATEGORIES if c != category])
         urgency = _mock_urgency(user)
         summary = _mock_summary(user)
         payload = {"category": category, "urgency": urgency, "summary": summary}

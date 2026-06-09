@@ -25,6 +25,7 @@ class Scorer:
             passed=passed,
             score=score,
             detail=detail,
+            repeat=result.repeat,
         )
 
     def _evaluate(self, case: EvalCase, result: RunResult) -> tuple[bool, float, str]:

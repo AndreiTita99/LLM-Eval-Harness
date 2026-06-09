@@ -17,6 +17,7 @@ from .llm import LLMResponse, make_client
 from .llm.judge import make_judge
 from .models import EvalCase, RunResult, RunSummary, Usage
 from .parsing import parse_json_output
+from .scorers.properties import property_scorers
 from .scorers.registry import Registry, default_registry
 
 # Re-exported for callers/tests that import it from the runner.
@@ -36,7 +37,7 @@ def load_prompt(path: str | Path) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
-def _to_result(case: EvalCase, resp: LLMResponse) -> RunResult:
+def _to_result(case: EvalCase, resp: LLMResponse, repeat: int) -> RunResult:
     return RunResult(
         case_id=case.id,
         raw_text=resp.text,
@@ -44,6 +45,7 @@ def _to_result(case: EvalCase, resp: LLMResponse) -> RunResult:
         latency_ms=resp.latency_ms,
         usage=Usage(input_tokens=resp.input_tokens, output_tokens=resp.output_tokens),
         model=resp.model,
+        repeat=repeat,
         error=resp.error,
     )
 
@@ -54,27 +56,37 @@ def run(
     config: Config,
     registry: Registry | None = None,
 ) -> RunSummary:
-    """Run every case once through the SUT and apply its declared scorers.
+    """Run every case `config.repeats` times and apply its scorers to each result.
 
     Each case names the scorers that apply to it; the registry resolves those
-    names to scorer instances. Names with no registry entry yet (e.g.
-    `summary_judge` before phase 3) are recorded as skipped, not failed.
+    names to scorer instances. Names with no registry entry are recorded as
+    skipped, not failed. Universal property scorers (format validity, refusal)
+    are applied to every result automatically — they're intrinsic to any call.
+
+    Running each case N times is the variance-handling core: we report pass-rate
+    and flag flaky cases rather than trusting a single sample.
     """
     registry = registry or default_registry(judge=make_judge(config))
     client = make_client(config)
+    props = property_scorers()
     summary = RunSummary(total_cases=len(cases))
     skipped: set[str] = set()
 
     for case in cases:
-        resp = client.complete(system=system_prompt, user=case.input)
-        result = _to_result(case, resp)
-        summary.results.append(result)
-        for scorer_name in case.scorers:
-            scorer = registry.get(scorer_name)
-            if scorer is None:
-                skipped.add(scorer_name)
-                continue
-            summary.scores.append(scorer.score(case, result))
+        for repeat in range(config.repeats):
+            resp = client.complete(system=system_prompt, user=case.input)
+            result = _to_result(case, resp, repeat=repeat)
+            summary.results.append(result)
+
+            for scorer_name in case.scorers:
+                scorer = registry.get(scorer_name)
+                if scorer is None:
+                    skipped.add(scorer_name)
+                    continue
+                summary.scores.append(scorer.score(case, result))
+
+            for prop in props:
+                summary.scores.append(prop.score(case, result))
 
     summary.skipped_scorers = sorted(skipped)
     return summary

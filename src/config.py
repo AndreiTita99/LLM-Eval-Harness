@@ -57,6 +57,13 @@ class Config(BaseModel):
 
     # --- Variance handling (phase 4) ---
     repeats: int = Field(default=3, ge=1)
+    # Probability (0..1) that the mock provider perturbs its category output on a
+    # given call. Off by default so tests/CI are deterministic; set it to make the
+    # mock genuinely non-deterministic across repeats so pass-rate/variance and
+    # flaky-case detection are visible in a demo (a real model is naturally
+    # non-deterministic). Perturbation is seeded by (input, call index), so a run
+    # is still fully reproducible.
+    mock_flakiness: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -72,4 +79,6 @@ class Config(BaseModel):
             overrides["sut_temperature"] = float(temp)
         if threshold := os.getenv("EVAL_JUDGE_THRESHOLD"):
             overrides["judge_pass_threshold"] = int(threshold)
+        if flakiness := os.getenv("EVAL_MOCK_FLAKINESS"):
+            overrides["mock_flakiness"] = float(flakiness)
         return cls(**overrides)

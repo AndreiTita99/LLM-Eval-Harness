@@ -29,11 +29,22 @@ test something that's never perfect?" into a tractable, CI-friendly question.
 ## Rehearsed answers to the likely questions
 
 **Q: How do you test something non-deterministic?**
-Run each case N times (config, default 3), report pass-rate and variance per case, not
-a single sample. A case that passes 3/5 is a different signal than 5/5 — surface that.
-Temperature is recorded; note that the most capable models (Opus 4.8/4.7) no longer
-expose `temperature` at all, so the harness leans on N-repeats rather than pinning
-temperature for determinism. *(Mechanics land in Phase 4.)*
+Run each case N times (`EVAL_REPEATS`, default 3), report pass-rate per case, and flag
+*flaky* cases — ones that neither always pass nor always fail (`0 < passes < N`). A case
+that passes 3/5 is a different signal than 5/5, and the harness surfaces that instead of
+trusting one sample. Temperature is recorded; the most capable models (Opus 4.8/4.7) no
+longer expose `temperature` at all, so the harness leans on N-repeats rather than pinning
+temperature for determinism. (Built in Phase 4. The mock is deterministic by default for
+reproducible CI, with an `EVAL_MOCK_FLAKINESS` knob — seeded by (input, repeat) so even
+the "non-deterministic" demo is reproducible — to show flaky detection live.)
+
+**Q: What non-accuracy metrics do you track, and why?**
+Property metrics, treated as first-class, not afterthoughts: **format validity** (did we
+get parseable JSON), **refusal** (did the model decline — a triage bot essentially never
+should), **latency** (mean + p95), **token usage**, and **estimated cost**. A prompt or
+model change can regress latency or cost without touching accuracy — and Phase 5 gates on
+p95 latency and cost, not just pass-rate. Cost uses a static price table; offline it falls
+back to the configured model's rates so the number is illustrative.
 
 **Q: How do you trust an LLM judge?**
 Four mitigations: (1) score against an explicit **rubric** with defined levels, not a
@@ -128,7 +139,10 @@ cases, lets me add scorers without touching the runner, and makes the
   rubric, on a cheaper model, with verbosity/self-preference guards. Offline mock
   judge. `eval judge-validate` reports judge↔human agreement + Cohen's kappa on a
   hand-labelled set (75% / 83% / 0.56 with the mock).
-- Phases 4–8: see README roadmap.
+- **Phase 4 (done):** N repeats with per-case pass-rate + flaky detection; universal
+  property scorers (`format_valid`, `no_refusal`); latency mean/p95, token totals,
+  estimated cost. Reproducible flakiness knob for the mock to demo variance.
+- Phases 5–8: see README roadmap.
 
 ## Design decisions log (Phase 3 additions)
 
@@ -144,6 +158,26 @@ cases, lets me add scorers without touching the runner, and makes the
 - **Cohen's kappa, hand-rolled and dependency-free** (`_cohen_kappa_binary`). Being
   able to explain *why* raw agreement is misleading (chance agreement when classes
   are imbalanced) is a strong signal — kappa corrects for it.
+
+## Design decisions log (Phase 4 additions)
+
+- **Declared vs universal scorers.** Structural/judge scorers are declared per case
+  (they need expected values); property scorers (`format_valid`, `no_refusal`) are
+  intrinsic to any call, so the runner applies them to every result automatically.
+  That split is a clean way to explain why some scorers live in the YAML and some don't.
+- **Pass-rate, not a single sample.** The unit of truth is N repeats per case. `is_flaky`
+  = `0 < passes < N`. Flaky ≠ failed — it's the signal that the prompt is unstable on
+  that input, which is often more actionable than a hard fail.
+- **Reproducible non-determinism (the mock flakiness trick).** Seeding the mock RNG by
+  `(input, repeat)` gives output that varies across repeats yet is identical run-to-run.
+  Lets the demo *show* flaky detection while CI stays deterministic. Good "how do you
+  test the thing that tests non-deterministic systems?" answer.
+- **Latency/cost are metrics, not pass/fail (yet).** They're continuous; turning them
+  into gates needs a baseline + tolerance, which is Phase 5. p95 (nearest-rank) over
+  mean because tail latency is what hurts in production.
+- **Cost is an honest estimate.** Static price table; unknown/mock model falls back to
+  the configured SUT rates. I can say plainly "offline this is illustrative, against a
+  real model it's exact, and judge-call cost isn't included yet."
 
 ## Things to be able to show live
 

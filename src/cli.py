@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .config import Config
 from .llm.judge import make_judge
+from .metrics import property_metrics
 from .models import RunSummary
 from .runner import load_cases, load_prompt, run
 from .validation import ValidationReport, load_labeled, validate_judge
@@ -27,21 +28,39 @@ DEFAULT_LABELED = "datasets/judge_labeled.yaml"
 
 def _print_summary(summary: RunSummary, config: Config) -> None:
     print(f"\nProvider: {config.provider}    SUT model: {config.sut_model}")
-    print(f"Cases: {summary.total_cases}\n")
+    print(f"Cases: {summary.total_cases}    Repeats per case: {config.repeats}\n")
 
-    print(f"{'CASE':<12} {'SCORER':<16} {'RESULT':<7} DETAIL")
+    # Per (case, scorer) pass-rate across repeats — variance is folded in here.
+    print(f"{'CASE':<12} {'SCORER':<16} {'PASS-RATE':<10} FLAG")
     print("-" * 78)
-    for score in summary.scores:
-        mark = "PASS" if score.passed else "FAIL"
-        print(f"{score.case_id:<12} {score.scorer:<16} {mark:<7} {score.detail}")
+    for stat in summary.by_case_scorer():
+        rate = f"{stat.passed}/{stat.total}"
+        flag = "FLAKY" if stat.is_flaky else ""
+        print(f"{stat.case_id:<12} {stat.scorer:<16} {rate:<10} {flag}")
 
-    print("\nPer-scorer pass-rate")
+    print("\nPer-scorer pass-rate (across all cases x repeats)")
     print("-" * 78)
     for stat in summary.by_scorer():
-        print(f"  {stat.scorer:<18} {stat.passed:>3}/{stat.total:<3} ({stat.pass_rate * 100:.0f}%)")
+        print(f"  {stat.scorer:<18} {stat.passed:>3}/{stat.total:<4} ({stat.pass_rate * 100:.0f}%)")
+
+    flaky = summary.flaky()
+    if flaky:
+        print(f"\nFlaky (non-deterministic) cases: {len(flaky)}")
+        for s in flaky:
+            print(f"  {s.case_id} / {s.scorer}: {s.passed}/{s.total}")
+    else:
+        print("\nFlaky cases: none")
+
+    metrics = property_metrics(summary.results, fallback_model=config.sut_model)
+    print("\nProperties")
+    print("-" * 78)
+    print(f"  SUT calls:        {metrics.n_calls}  (errors: {metrics.n_errors})")
+    print(f"  Latency mean/p95: {metrics.latency_mean_ms:.0f} ms / {metrics.latency_p95_ms:.0f} ms")
+    print(f"  Tokens in/out:    {metrics.total_input_tokens} / {metrics.total_output_tokens}")
+    print(f"  Est. cost:        ${metrics.estimated_cost_usd:.4f}")
 
     if summary.skipped_scorers:
-        print(f"\nSkipped (not registered yet): {', '.join(summary.skipped_scorers)}")
+        print(f"\nSkipped (no scorer registered): {', '.join(summary.skipped_scorers)}")
 
     overall = summary.overall()
     print("-" * 78)

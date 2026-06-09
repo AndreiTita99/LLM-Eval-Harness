@@ -56,13 +56,15 @@ class RunResult(BaseModel):
 
 
 class CaseScore(BaseModel):
-    """A single scorer's verdict on a RunResult (phase 2+)."""
+    """A single scorer's verdict on one RunResult."""
 
     case_id: str
     scorer: str
     passed: bool
     score: float = 0.0  # normalised 0..1
     detail: str = ""
+    # Which repeat (0-based) this verdict came from — variance handling (phase 4).
+    repeat: int = 0
 
 
 class ScorerStats(BaseModel):
@@ -75,6 +77,28 @@ class ScorerStats(BaseModel):
     @property
     def pass_rate(self) -> float:
         return self.passed / self.total if self.total else 0.0
+
+
+class CaseScoreStats(BaseModel):
+    """Pass-rate for one (case, scorer) pair across N repeats — variance handling.
+
+    A case that passes 3/5 is a different signal than one that passes 5/5;
+    `is_flaky` flags the strictly-in-between case so it isn't read as a clean pass
+    or a clean fail.
+    """
+
+    case_id: str
+    scorer: str
+    passed: int
+    total: int
+
+    @property
+    def pass_rate(self) -> float:
+        return self.passed / self.total if self.total else 0.0
+
+    @property
+    def is_flaky(self) -> bool:
+        return self.total > 1 and 0 < self.passed < self.total
 
 
 class RunSummary(BaseModel):
@@ -96,7 +120,23 @@ class RunSummary(BaseModel):
             bucket[1] += 1
         return [ScorerStats(scorer=name, passed=p, total=t) for name, (p, t) in sorted(agg.items())]
 
+    def by_case_scorer(self) -> list[CaseScoreStats]:
+        """Per (case, scorer) pass-rate across repeats, ordered case then scorer."""
+        agg: dict[tuple[str, str], list[int]] = {}
+        for s in self.scores:
+            bucket = agg.setdefault((s.case_id, s.scorer), [0, 0])
+            bucket[0] += int(s.passed)
+            bucket[1] += 1
+        return [
+            CaseScoreStats(case_id=cid, scorer=name, passed=p, total=t)
+            for (cid, name), (p, t) in sorted(agg.items())
+        ]
+
+    def flaky(self) -> list[CaseScoreStats]:
+        """(case, scorer) pairs that neither always passed nor always failed."""
+        return [s for s in self.by_case_scorer() if s.is_flaky]
+
     def overall(self) -> ScorerStats:
-        """Pass count across every (case, scorer) pair in the run."""
+        """Pass count across every (case, scorer, repeat) verdict in the run."""
         passed = sum(1 for s in self.scores if s.passed)
         return ScorerStats(scorer="overall", passed=passed, total=len(self.scores))

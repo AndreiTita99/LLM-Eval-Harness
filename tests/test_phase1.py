@@ -21,7 +21,7 @@ def test_parse_json_output_returns_none_on_garbage():
 
 
 def test_run_end_to_end_with_mock():
-    config = Config(provider="mock")
+    config = Config(provider="mock", repeats=1)
     cases = [
         EvalCase(id="t1", input="My card was charged twice", expected={"category": "billing"},
                  scorers=["category_exact"]),
@@ -31,7 +31,9 @@ def test_run_end_to_end_with_mock():
     summary = run(cases, system_prompt="triage", config=config)
 
     assert summary.total_cases == 2
-    assert len(summary.results) == 2
-    assert len(summary.scores) == 2
+    assert len(summary.results) == 2  # 2 cases x 1 repeat
+    # Each result is scored by its declared scorer (category_exact) plus the two
+    # universal property scorers (format_valid, no_refusal): 2 x (1 + 2) = 6.
+    assert len(summary.scores) == 6
     # The mock parses to valid JSON for every case.
     assert all(r.parsed is not None for r in summary.results)
