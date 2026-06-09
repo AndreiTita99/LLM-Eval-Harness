@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-eval-harness"
+version = "0.1.0"
+description = "CI for prompts: an automated LLM evaluation harness with regression gating."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40",
+    "pydantic>=2.6",
+    "jinja2>=3.1",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+eval = "src.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "live: tests that make real LLM API calls (deselected by default; run locally/nightly)",
+]
+addopts = "-m 'not live'"

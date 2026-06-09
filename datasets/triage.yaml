@@ -1,0 +1,59 @@
+# Golden dataset for the support-ticket triage SUT.
+#
+# Each case declares its input, the values we expect, and (from phase 2) which
+# scorers apply. `held_out: true` marks cases kept separate from prompt
+# iteration — the prompt-engineering equivalent of not testing on your training
+# data. They are evaluated but flagged so we never tune against them.
+
+- id: ticket_001
+  input: "My card was charged twice for the same order #4471. Please refund the duplicate."
+  expected:
+    category: billing
+    urgency: high
+  scorers: [category_exact, urgency_schema, summary_judge]
+
+- id: ticket_002
+  input: "How do I change the email address on my account?"
+  expected:
+    category: account
+    urgency: low
+  scorers: [category_exact, urgency_schema, summary_judge]
+
+- id: ticket_003
+  input: "The app crashes every time I tap the export button. I'm completely blocked."
+  expected:
+    category: technical
+    urgency: high
+  scorers: [category_exact, urgency_schema, summary_judge]
+
+- id: ticket_004
+  input: "When will my package arrive? The tracking page hasn't updated in three days."
+  expected:
+    category: shipping
+    urgency: medium
+  scorers: [category_exact, urgency_schema, summary_judge]
+
+- id: ticket_005
+  input: "Do you offer a student discount on the annual plan?"
+  expected:
+    category: general
+    urgency: low
+  scorers: [category_exact, urgency_schema, summary_judge]
+
+# --- Held-out cases (not used while iterating on the prompt) ---
+
+- id: ticket_h01
+  input: "I was billed for premium but my account still shows the free tier."
+  expected:
+    category: billing
+    urgency: high
+  scorers: [category_exact, urgency_schema, summary_judge]
+  held_out: true
+
+- id: ticket_h02
+  input: "Can I download an invoice for last month's payment for my records?"
+  expected:
+    category: billing
+    urgency: low
+  scorers: [category_exact, urgency_schema, summary_judge]
+  held_out: true
