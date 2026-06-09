@@ -155,6 +155,25 @@ To see the gate fail (the demo): with a baseline in place, run a degraded prompt
 or, offline, `EVAL_MOCK_FLAKINESS=0.4 EVAL_REPEATS=5 eval run` — and the pass-rate drop
 trips the gate and returns exit code 1.
 
+## Reports
+
+Every `eval run` writes a machine report (`report.json`) and a human report
+(`report.html`) into `reports/` (gitignored — they're generated). Both are built from a
+single data structure, so they never drift. The HTML report contains:
+
+- a **gate banner** (PASS / FAIL / no-baseline) and the **diff-vs-baseline** table — the
+  part you screenshot;
+- pass-rate by scorer, overall, and a flaky-cases callout;
+- property cards (latency mean/p95, tokens, cost);
+- per-case detail: the input, expected values, each scorer's pass-rate, and the model's
+  **actual output per repeat** plus the **judge's reasoning**.
+
+```bash
+eval run                       # writes reports/report.html + reports/report.json
+eval run --report-dir out      # custom location
+eval run --no-report           # skip report generation
+```
+
 ### The judge, done responsibly
 
 The LLM-as-judge is the part most teams get wrong, so the mitigations are explicit:
@@ -190,7 +209,9 @@ Built in phases; each phase ends with something runnable.
 - [x] **Phase 5 — Baseline + regression gating.** `baseline.json` snapshot,
       `eval baseline update`, per-metric diff vs baseline within tolerances, and a
       non-zero exit code on regression so CI can block a PR.
-- [ ] Phase 6 — HTML + JSON reports with a diff-vs-baseline section.
+- [x] **Phase 6 — Reporting.** `report.json` + a self-contained `report.html`
+      (Jinja2) from one data source: gate banner, diff-vs-baseline, per-scorer and
+      flaky breakdown, property cards, and per-case model output + judge reasoning.
 - [ ] Phase 7 — GitHub Actions workflow that gates PRs touching prompts/datasets.
 - [ ] Phase 8 — Polish: judge-validation writeup, batch-API cost note, screenshots.
 

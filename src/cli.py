@@ -25,13 +25,15 @@ from .baseline import (
 from .config import Config
 from .llm.judge import make_judge
 from .metrics import PropertyMetrics, property_metrics
-from .models import RunSummary
+from .models import EvalCase, RunSummary
+from .report import build_report, write_reports
 from .runner import load_cases, load_prompt, run
 from .validation import ValidationReport, load_labeled, validate_judge
 
 DEFAULT_DATASET = "datasets/triage.yaml"
 DEFAULT_PROMPT = "prompts/triage_v1.txt"
 DEFAULT_LABELED = "datasets/judge_labeled.yaml"
+DEFAULT_REPORT_DIR = "reports"
 
 
 def _print_summary(summary: RunSummary, config: Config) -> None:
@@ -77,12 +79,12 @@ def _print_summary(summary: RunSummary, config: Config) -> None:
 
 def _run_and_snapshot(
     config: Config, dataset: Path, prompt_path: Path
-) -> tuple[RunSummary, PropertyMetrics, BaselineSnapshot]:
+) -> tuple[list[EvalCase], RunSummary, PropertyMetrics, BaselineSnapshot]:
     cases = load_cases(dataset)
     prompt = load_prompt(prompt_path)
     summary = run(cases, prompt, config)
     metrics = property_metrics(summary.results, fallback_model=config.sut_model)
-    return summary, metrics, snapshot(summary, metrics, config)
+    return cases, summary, metrics, snapshot(summary, metrics, config)
 
 
 def _print_diff(report: RegressionReport) -> None:
@@ -105,29 +107,36 @@ def _print_diff(report: RegressionReport) -> None:
 
 def cmd_run(args: argparse.Namespace) -> int:
     config = Config.from_env()
-    summary, _metrics, current = _run_and_snapshot(config, args.dataset, args.prompt)
+    cases, summary, metrics, current = _run_and_snapshot(config, args.dataset, args.prompt)
     _print_summary(summary, config)
 
-    if args.no_gate:
-        return 0
+    baseline = None
+    regression = None
+    exit_code = 0
+    if not args.no_gate:
+        baseline_path = args.baseline or config.baseline_path
+        baseline = load_baseline(baseline_path)
+        if baseline is None:
+            print(
+                f"\nNo baseline at {baseline_path!r}; not gating. "
+                "Establish one with `eval baseline update`."
+            )
+        else:
+            regression = compare(current, baseline, config)
+            _print_diff(regression)
+            exit_code = 0 if regression.passed else 1
 
-    baseline_path = args.baseline or config.baseline_path
-    baseline = load_baseline(baseline_path)
-    if baseline is None:
-        print(
-            f"\nNo baseline at {baseline_path!r}; not gating. "
-            "Establish one with `eval baseline update`."
-        )
-        return 0
+    if not args.no_report:
+        report = build_report(cases, summary, metrics, config, baseline, regression)
+        json_path, html_path = write_reports(report, args.report_dir)
+        print(f"\nReport: {html_path}  (+ {json_path.name})")
 
-    report = compare(current, baseline, config)
-    _print_diff(report)
-    return 0 if report.passed else 1
+    return exit_code
 
 
 def cmd_baseline_update(args: argparse.Namespace) -> int:
     config = Config.from_env()
-    summary, _metrics, current = _run_and_snapshot(config, args.dataset, args.prompt)
+    _cases, summary, _metrics, current = _run_and_snapshot(config, args.dataset, args.prompt)
     _print_summary(summary, config)
 
     baseline_path = args.baseline or config.baseline_path
@@ -195,6 +204,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--prompt", default=DEFAULT_PROMPT, type=Path)
     run_p.add_argument("--baseline", default=None, help="Path to baseline.json (default from config).")
     run_p.add_argument("--no-gate", action="store_true", help="Run without comparing to the baseline.")
+    run_p.add_argument("--report-dir", default=DEFAULT_REPORT_DIR, help="Where to write report.html/json.")
+    run_p.add_argument("--no-report", action="store_true", help="Skip writing the HTML/JSON report.")
     run_p.set_defaults(func=cmd_run)
 
     baseline_p = sub.add_parser("baseline", help="Manage the regression baseline.")

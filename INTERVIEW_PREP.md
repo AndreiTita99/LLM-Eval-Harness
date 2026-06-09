@@ -85,6 +85,14 @@ used 5 repeats vs the baseline's 3.)
 Fail. `compare()` reads a baseline scorer that's missing in the current run as 0.0, which
 trips the drop tolerance. A metric silently vanishing should block, not quietly pass.
 
+**Q: How do you make eval results actionable, not just a pass/fail number?**
+Two artifacts from one data source: `report.json` for machines/CI, and a self-contained
+`report.html` for humans. The HTML leads with the gate verdict and a diff-vs-baseline
+table (what improved, what regressed, by how much), then drills into per-case detail —
+the model's actual output for each repeat and the judge's reasoning. So "category_exact
+dropped to 66%" comes with the specific cases and outputs that caused it, not just the
+headline.
+
 **Q: Why hold out part of the dataset?**
 Same reason you don't evaluate an ML model on its training data. Cases used while
 iterating on the prompt are "training"; held-out cases give an honest read on
@@ -158,7 +166,26 @@ cases, lets me add scorers without touching the runner, and makes the
 - **Phase 5 (done):** `baseline.json` snapshot + `eval baseline update`; `compare()`
   gates per-scorer/overall pass-rate (abs drop tol), p95 latency and per-call cost
   (growth tol); `eval run` exits non-zero on regression. Committed a mock baseline.
-- Phases 6–8: see README roadmap.
+- **Phase 6 (done):** `report.json` + self-contained `report.html` (Jinja2) from one
+  `build_report()` dict — gate banner, diff-vs-baseline, per-scorer/flaky breakdown,
+  property cards, per-case model output + judge reasoning. Written to `reports/`.
+- Phases 7–8: see README roadmap.
+
+## Design decisions log (Phase 6 additions)
+
+- **One data source for both reports.** `build_report()` returns a plain dict that is
+  *both* `report.json` and the context the HTML template renders. Human and machine
+  reports can't drift because they're the same object.
+- **Report is a plain dict, not pydantic.** Deliberate exception to the typed-contracts
+  rule: it's a terminal output artifact (serialise + template), not something other code
+  computes on, so a dict is the pragmatic choice and keeps the template simple.
+- **Self-contained HTML, inline CSS, no JS/CDN.** Opens anywhere, screenshots cleanly,
+  survives being emailed or attached to a PR. The diff-vs-baseline table is the money
+  shot — regressed rows are red-highlighted.
+- **Per-case detail shows the actual model output and judge reasoning.** When a reviewer
+  asks "why did this fail?", the answer is right there per repeat — not just a number.
+- **Reports are generated, not committed** (`reports/` is gitignored); `baseline.json`
+  *is* committed. Clear line between the reviewed known-good state and disposable output.
 
 ## Design decisions log (Phase 5 additions)
 

@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Eval Report</title>
+<style>
+  :root {
+    --pass: #1a7f37; --fail: #cf222e; --muted: #57606a; --line: #d0d7de;
+    --bg: #f6f8fa; --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+         color: #1f2328; margin: 0; background: var(--bg); }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 32px 0 10px; }
+  .muted { color: var(--muted); }
+  .meta { color: var(--muted); font-size: 13px; }
+  .banner { margin: 18px 0; padding: 14px 18px; border-radius: 8px; font-weight: 600;
+            font-size: 16px; color: #fff; }
+  .banner.pass { background: var(--pass); }
+  .banner.fail { background: var(--fail); }
+  .banner.none { background: var(--muted); }
+  table { border-collapse: collapse; width: 100%; background: var(--card);
+          border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  th { background: #f0f3f6; font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+         font-weight: 600; }
+  .tag.pass { background: #dafbe1; color: var(--pass); }
+  .tag.fail { background: #ffebe9; color: var(--fail); }
+  .tag.flaky { background: #fff1c2; color: #9a6700; }
+  .tag.held { background: #ddf4ff; color: #0969da; }
+  tr.regressed td { background: #fff5f5; }
+  .delta-bad { color: var(--fail); font-weight: 600; }
+  .delta-ok { color: var(--pass); }
+  .cards { display: flex; flex-wrap: wrap; gap: 12px; }
+  .card { flex: 1 1 150px; background: var(--card); border: 1px solid var(--line);
+          border-radius: 8px; padding: 12px 14px; }
+  .card .v { font-size: 20px; font-weight: 700; }
+  .card .k { color: var(--muted); font-size: 12px; }
+  .case { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+          padding: 14px 16px; margin: 10px 0; }
+  .case .input { margin: 6px 0; }
+  .case code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                      font-size: 13px; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--muted); }
+  .repeat { border-top: 1px dashed var(--line); padding: 6px 0; }
+  .barwrap { background: #eaeef2; border-radius: 4px; height: 8px; width: 120px; display: inline-block;
+             vertical-align: middle; overflow: hidden; }
+  .bar { height: 8px; background: var(--pass); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>LLM Evaluation Report</h1>
+  <div class="meta">
+    {{ report.meta.generated_at }} &middot;
+    provider <b>{{ report.meta.provider }}</b> &middot;
+    SUT <b>{{ report.meta.sut_model }}</b> &middot;
+    judge <b>{{ report.meta.judge_model }}</b> &middot;
+    {{ report.meta.total_cases }} cases &times; {{ report.meta.repeats }} repeats
+  </div>
+
+  {% if not report.gate.has_baseline %}
+    <div class="banner none">NO BASELINE &mdash; not gating. Run <code>eval baseline update</code> to set one.</div>
+  {% elif report.gate.passed %}
+    <div class="banner pass">GATE PASS &mdash; no regression beyond tolerance.</div>
+  {% else %}
+    <div class="banner fail">GATE FAIL &mdash; {{ report.gate.regressions|length }} regression(s): {{ report.gate.regressions|join(", ") }}</div>
+  {% endif %}
+
+  {% if report.baseline_diff %}
+  <h2>Diff vs baseline</h2>
+  <table>
+    <tr><th>Metric</th><th class="num">Baseline</th><th class="num">Current</th><th class="num">Delta</th><th>Status</th></tr>
+    {% for d in report.baseline_diff %}
+    <tr class="{{ 'regressed' if d.regressed else '' }}">
+      <td class="mono">{{ d.name }}</td>
+      <td class="num">{{ "%.4g"|format(d.baseline) }}</td>
+      <td class="num">{{ "%.4g"|format(d.current) }}</td>
+      <td class="num {{ 'delta-bad' if d.regressed else 'delta-ok' }}">{{ "%+.4g"|format(d.delta) }}</td>
+      <td>{% if d.regressed %}<span class="tag fail">REGRESSED</span>{% else %}<span class="tag pass">ok</span>{% endif %}
+          <span class="muted">({{ d.note }})</span></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  <h2>Pass-rate by scorer</h2>
+  <table>
+    <tr><th>Scorer</th><th class="num">Passed</th><th>Rate</th></tr>
+    {% for s in report.scorer_pass_rates %}
+    <tr>
+      <td class="mono">{{ s.scorer }}</td>
+      <td class="num">{{ s.passed }}/{{ s.total }}</td>
+      <td><span class="barwrap"><span class="bar" style="width: {{ (s.pass_rate * 120)|round|int }}px"></span></span>
+          {{ s.pass_rate|pct }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted">Overall: {{ report.overall.passed }}/{{ report.overall.total }} checks passed ({{ report.overall.pass_rate|pct }}).
+  {% if report.skipped_scorers %}Skipped: {{ report.skipped_scorers|join(", ") }}.{% endif %}</p>
+
+  <h2>Properties</h2>
+  <div class="cards">
+    <div class="card"><div class="v">{{ report.properties.latency_mean_ms }} / {{ report.properties.latency_p95_ms }} ms</div><div class="k">latency mean / p95</div></div>
+    <div class="card"><div class="v">{{ report.properties.total_input_tokens }} / {{ report.properties.total_output_tokens }}</div><div class="k">tokens in / out</div></div>
+    <div class="card"><div class="v">${{ "%.4f"|format(report.properties.estimated_cost_usd) }}</div><div class="k">est. cost (run)</div></div>
+    <div class="card"><div class="v">{{ report.properties.n_calls }}</div><div class="k">SUT calls ({{ report.properties.n_errors }} errors)</div></div>
+  </div>
+
+  {% if report.flaky %}
+  <h2>Flaky cases ({{ report.flaky|length }})</h2>
+  <table>
+    <tr><th>Case</th><th>Scorer</th><th class="num">Pass-rate</th></tr>
+    {% for f in report.flaky %}
+    <tr><td class="mono">{{ f.case_id }}</td><td class="mono">{{ f.scorer }}</td><td class="num">{{ f.passed }}/{{ f.total }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  <h2>Cases</h2>
+  {% for c in report.cases %}
+  <div class="case">
+    <div>
+      <b class="mono">{{ c.id }}</b>
+      {% if c.held_out %}<span class="tag held">held-out</span>{% endif %}
+      {% if c.all_passed %}<span class="tag pass">pass</span>{% else %}<span class="tag fail">fail</span>{% endif %}
+    </div>
+    <div class="input">{{ c.input }}</div>
+    {% if c.expected %}<div class="muted">expected: {% for k, v in c.expected.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+
+    <table style="margin-top:8px">
+      <tr><th>Scorer</th><th class="num">Pass-rate</th><th>Detail</th></tr>
+      {% for s in c.scorers %}
+      <tr>
+        <td class="mono">{{ s.scorer }}</td>
+        <td class="num">{{ s.passed }}/{{ s.total }} {% if s.is_flaky %}<span class="tag flaky">flaky</span>{% endif %}</td>
+        <td>{{ s.samples[0].detail }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+
+    <details>
+      <summary>Model output ({{ c.repeats|length }} repeat(s))</summary>
+      {% for r in c.repeats %}
+      <div class="repeat">
+        <span class="muted">#{{ r.repeat }} &middot; {{ r.latency_ms }} ms</span>
+        {% if r.error %}<div class="delta-bad">error: {{ r.error }}</div>
+        {% elif r.parsed %}
+          <div class="mono">category={{ r.parsed.get("category") }} &middot; urgency={{ r.parsed.get("urgency") }}</div>
+          <div>summary: {{ r.parsed.get("summary") }}</div>
+        {% else %}<div class="delta-bad">unparseable:</div><div class="mono">{{ r.raw_text }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </details>
+  </div>
+  {% endfor %}
+
+</div>
+</body>
+</html>

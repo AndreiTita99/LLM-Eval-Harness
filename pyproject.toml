@@ -26,6 +26,9 @@ eval = "src.cli:main"
 [tool.setuptools.packages.find]
 include = ["src*"]
 
+[tool.setuptools.package-data]
+src = ["templates/*.j2"]
+
 [tool.pytest.ini_options]
 markers = [
     "live: tests that make real LLM API calls (deselected by default; run locally/nightly)",
