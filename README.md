@@ -90,6 +90,10 @@ All run settings are environment-driven (see `src/config.py`):
 | `EVAL_SUT_TEMPERATURE` | unset | Only sent to models that accept it |
 | `EVAL_JUDGE_THRESHOLD` | `2` | Minimum rubric score (1–3) for the summary judge to pass |
 | `EVAL_MOCK_FLAKINESS` | `0.0` | Mock-only: probability the mock perturbs its output, to demo variance |
+| `EVAL_BASELINE_PATH` | `baseline.json` | Where the known-good baseline is stored |
+| `EVAL_ACCURACY_TOLERANCE` | `0.02` | Max allowed pass-rate drop (absolute) before regression |
+| `EVAL_LATENCY_TOLERANCE` | `0.20` | Max allowed p95 latency growth (fraction) |
+| `EVAL_COST_TOLERANCE` | `0.20` | Max allowed cost-per-call growth (fraction) |
 
 ## Scorers
 
@@ -123,6 +127,34 @@ The mock provider is deterministic by default (so tests are reproducible). Set
 EVAL_MOCK_FLAKINESS=0.34 EVAL_REPEATS=5 eval run    # surfaces flaky cases
 ```
 
+## Regression gating (the CI gate)
+
+`baseline.json` holds the last known-good aggregate metrics. `eval run` compares the
+current run against it within tolerances and **exits non-zero on regression**, so CI can
+block the PR. The gate covers:
+
+- **per-scorer pass-rate** and overall pass-rate — may not drop more than
+  `accuracy_drop_tolerance` (default 2 points);
+- **p95 latency** — may not grow more than `latency_growth_tolerance` (default 20%);
+- **cost per call** — may not grow more than `cost_growth_tolerance` (default 20%).
+  Cost is gated *per call*, not per run, so the gate is invariant to how many repeats a
+  run used.
+
+```bash
+eval baseline update     # run the eval and promote the result to baseline.json
+eval run                 # gate against baseline.json; exit 1 on regression
+eval run --no-gate       # run without gating (local iteration)
+```
+
+`eval baseline update` is the deliberate, reviewed action that says "this is the new
+known-good." The principle is **gate on regression, not perfection**: the harness never
+demands 100% — it demands a change doesn't make things *worse* than baseline beyond the
+tolerance.
+
+To see the gate fail (the demo): with a baseline in place, run a degraded prompt/model —
+or, offline, `EVAL_MOCK_FLAKINESS=0.4 EVAL_REPEATS=5 eval run` — and the pass-rate drop
+trips the gate and returns exit code 1.
+
 ### The judge, done responsibly
 
 The LLM-as-judge is the part most teams get wrong, so the mitigations are explicit:
@@ -155,7 +187,9 @@ Built in phases; each phase ends with something runnable.
 - [x] **Phase 4 — Variance + properties.** N repeats with per-case pass-rate and
       flaky-case detection; universal `format_valid`/`no_refusal` property scorers;
       latency mean/p95, token totals, and estimated cost reported per run.
-- [ ] Phase 5 — Baseline tracking + regression gating + non-zero exit codes.
+- [x] **Phase 5 — Baseline + regression gating.** `baseline.json` snapshot,
+      `eval baseline update`, per-metric diff vs baseline within tolerances, and a
+      non-zero exit code on regression so CI can block a PR.
 - [ ] Phase 6 — HTML + JSON reports with a diff-vs-baseline section.
 - [ ] Phase 7 — GitHub Actions workflow that gates PRs touching prompts/datasets.
 - [ ] Phase 8 — Polish: judge-validation writeup, batch-API cost note, screenshots.

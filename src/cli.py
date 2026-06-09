@@ -14,9 +14,17 @@ import argparse
 import sys
 from pathlib import Path
 
+from .baseline import (
+    BaselineSnapshot,
+    RegressionReport,
+    compare,
+    load_baseline,
+    save_baseline,
+    snapshot,
+)
 from .config import Config
 from .llm.judge import make_judge
-from .metrics import property_metrics
+from .metrics import PropertyMetrics, property_metrics
 from .models import RunSummary
 from .runner import load_cases, load_prompt, run
 from .validation import ValidationReport, load_labeled, validate_judge
@@ -67,12 +75,69 @@ def _print_summary(summary: RunSummary, config: Config) -> None:
     print(f"\nOverall: {overall.passed}/{overall.total} checks passed ({overall.pass_rate * 100:.0f}%)")
 
 
+def _run_and_snapshot(
+    config: Config, dataset: Path, prompt_path: Path
+) -> tuple[RunSummary, PropertyMetrics, BaselineSnapshot]:
+    cases = load_cases(dataset)
+    prompt = load_prompt(prompt_path)
+    summary = run(cases, prompt, config)
+    metrics = property_metrics(summary.results, fallback_model=config.sut_model)
+    return summary, metrics, snapshot(summary, metrics, config)
+
+
+def _print_diff(report: RegressionReport) -> None:
+    print("\nBaseline comparison (diff vs last known-good)")
+    print("-" * 78)
+    print(f"{'METRIC':<26} {'BASELINE':>10} {'CURRENT':>10} {'DELTA':>10}  STATUS")
+    for d in report.deltas:
+        status = "REGRESSED" if d.regressed else "ok"
+        print(
+            f"{d.name:<26} {d.baseline:>10.4g} {d.current:>10.4g} "
+            f"{d.delta:>+10.4g}  {status}"
+        )
+    print("-" * 78)
+    if report.passed:
+        print("\nGATE PASS - no regression beyond tolerance.")
+    else:
+        names = ", ".join(d.name for d in report.regressions)
+        print(f"\nGATE FAIL - {len(report.regressions)} regression(s): {names}")
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     config = Config.from_env()
-    cases = load_cases(args.dataset)
-    prompt = load_prompt(args.prompt)
-    summary = run(cases, prompt, config)
+    summary, _metrics, current = _run_and_snapshot(config, args.dataset, args.prompt)
     _print_summary(summary, config)
+
+    if args.no_gate:
+        return 0
+
+    baseline_path = args.baseline or config.baseline_path
+    baseline = load_baseline(baseline_path)
+    if baseline is None:
+        print(
+            f"\nNo baseline at {baseline_path!r}; not gating. "
+            "Establish one with `eval baseline update`."
+        )
+        return 0
+
+    report = compare(current, baseline, config)
+    _print_diff(report)
+    return 0 if report.passed else 1
+
+
+def cmd_baseline_update(args: argparse.Namespace) -> int:
+    config = Config.from_env()
+    summary, _metrics, current = _run_and_snapshot(config, args.dataset, args.prompt)
+    _print_summary(summary, config)
+
+    baseline_path = args.baseline or config.baseline_path
+    save_baseline(current, baseline_path)
+    print(
+        f"\nBaseline updated -> {baseline_path}"
+        f"\n  overall pass-rate: {current.overall_pass_rate:.2%}"
+        f"   p95 latency: {current.latency_p95_ms:.0f} ms"
+        f"   est. cost/call: ${current.cost_per_call_usd:.6f}"
+    )
     return 0
 
 
@@ -123,10 +188,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="eval", description="CI for prompts.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run_p = sub.add_parser("run", help="Run the golden set through the SUT prompt.")
+    run_p = sub.add_parser(
+        "run", help="Run the golden set and gate against the baseline (exit 1 on regression)."
+    )
     run_p.add_argument("--dataset", default=DEFAULT_DATASET, type=Path)
     run_p.add_argument("--prompt", default=DEFAULT_PROMPT, type=Path)
+    run_p.add_argument("--baseline", default=None, help="Path to baseline.json (default from config).")
+    run_p.add_argument("--no-gate", action="store_true", help="Run without comparing to the baseline.")
     run_p.set_defaults(func=cmd_run)
+
+    baseline_p = sub.add_parser("baseline", help="Manage the regression baseline.")
+    baseline_sub = baseline_p.add_subparsers(dest="baseline_cmd", required=True)
+    update_p = baseline_sub.add_parser("update", help="Promote the current run to baseline.json.")
+    update_p.add_argument("--dataset", default=DEFAULT_DATASET, type=Path)
+    update_p.add_argument("--prompt", default=DEFAULT_PROMPT, type=Path)
+    update_p.add_argument("--baseline", default=None, help="Path to write (default from config).")
+    update_p.set_defaults(func=cmd_baseline_update)
 
     jv_p = sub.add_parser(
         "judge-validate",

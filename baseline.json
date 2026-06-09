@@ -1,0 +1,18 @@
+{
+  "created_at": "2026-06-09T18:03:45+00:00",
+  "provider": "mock",
+  "sut_model": "claude-opus-4-8",
+  "repeats": 3,
+  "total_cases": 7,
+  "scorer_pass_rates": {
+    "category_exact": 1.0,
+    "format_valid": 1.0,
+    "no_refusal": 1.0,
+    "response_schema": 1.0,
+    "summary_judge": 1.0,
+    "urgency_schema": 1.0
+  },
+  "overall_pass_rate": 1.0,
+  "latency_p95_ms": 5.011,
+  "cost_per_call_usd": 0.00046429
+}

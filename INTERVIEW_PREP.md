@@ -66,11 +66,24 @@ the validation surfaces them instead of hiding them. With a real judge model I'd
 expect higher agreement; the methodology is identical either way.
 
 **Q: What's a regression here, and how does CI catch it?**
-`baseline.json` stores last-known-good aggregate scores. A run compares new scores
-within a tolerance (e.g. accuracy may not drop >2 points; p95 latency may not grow
->X%). On regression we write the report **and exit non-zero**, which fails the PR
-check. `eval baseline update` promotes current scores — a deliberate, reviewed action.
-*(Lands in Phase 5.)*
+`baseline.json` stores last-known-good aggregate metrics. A run snapshots the same
+metrics and `compare()` checks each within a tolerance: per-scorer + overall pass-rate
+may not drop >2 points; p95 latency and cost-per-call may not grow >20%. Any breach is a
+regression, and `eval run` returns a non-zero exit code, which fails the PR check.
+`eval baseline update` promotes the current run to baseline — a deliberate, reviewed,
+committed action. (Built in Phase 5.)
+
+**Q: Why gate cost *per call* rather than per run?**
+Total run cost scales with how many repeats you ran (3 vs 5), so comparing totals across
+runs with different `EVAL_REPEATS` would flag a fake regression. Per-call cost is
+invariant to repeat count and is what actually moves when a prompt or model gets more
+expensive. p95 latency and pass-rates are already repeat-invariant. (I hit exactly this
+bug while building it — the first flaky-demo run "regressed" on cost purely because it
+used 5 repeats vs the baseline's 3.)
+
+**Q: A scorer disappears from the run — pass or fail?**
+Fail. `compare()` reads a baseline scorer that's missing in the current run as 0.0, which
+trips the drop tolerance. A metric silently vanishing should block, not quietly pass.
 
 **Q: Why hold out part of the dataset?**
 Same reason you don't evaluate an ML model on its training data. Cases used while
@@ -142,7 +155,33 @@ cases, lets me add scorers without touching the runner, and makes the
 - **Phase 4 (done):** N repeats with per-case pass-rate + flaky detection; universal
   property scorers (`format_valid`, `no_refusal`); latency mean/p95, token totals,
   estimated cost. Reproducible flakiness knob for the mock to demo variance.
-- Phases 5–8: see README roadmap.
+- **Phase 5 (done):** `baseline.json` snapshot + `eval baseline update`; `compare()`
+  gates per-scorer/overall pass-rate (abs drop tol), p95 latency and per-call cost
+  (growth tol); `eval run` exits non-zero on regression. Committed a mock baseline.
+- Phases 6–8: see README roadmap.
+
+## Design decisions log (Phase 5 additions)
+
+- **Gate on regression vs baseline, not on an absolute bar.** The whole philosophy.
+  The number that matters is the *delta* from last-known-good, within a tolerance —
+  that's what makes it a realistic CI gate instead of a vanity threshold.
+- **Snapshot is a small, stable reduction of a run.** Per-scorer pass-rates, overall,
+  p95 latency, per-call cost + provenance (model, repeats, timestamp). Everything
+  gated is repeat-invariant so the baseline is comparable across differently-sized runs.
+- **`eval baseline update` is deliberate and the output is committed.** Promoting a
+  baseline is a reviewed git change, not an automatic side effect of running — same as
+  approving a new golden snapshot in snapshot testing.
+- **Non-zero exit code is the entire integration surface with CI.** No plugin, no
+  service — `eval run` returns 1, the workflow step fails, the branch is blocked.
+- **Tolerances are config + env.** Defaults: 2 pass-rate points, 20% latency, 20% cost.
+  Easy to tighten per-repo without code changes.
+
+## Live demo script (the money shot)
+
+1. `eval run` → GATE PASS, exit 0 (show `echo $?` / `$LASTEXITCODE`).
+2. `EVAL_MOCK_FLAKINESS=0.4 EVAL_REPEATS=5 eval run` → pass-rate drops, GATE FAIL,
+   exit 1 — "this is the run that would block the PR." (With a real model, the
+   equivalent is committing a worse prompt and watching CI go red.)
 
 ## Design decisions log (Phase 3 additions)
 

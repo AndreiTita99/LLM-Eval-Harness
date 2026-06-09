@@ -65,6 +65,15 @@ class Config(BaseModel):
     # is still fully reproducible.
     mock_flakiness: float = Field(default=0.0, ge=0.0, le=1.0)
 
+    # --- Baseline regression gating (phase 5) ---
+    baseline_path: str = Field(default="baseline.json")
+    # A pass-rate may drop by at most this many points (absolute, 0..1) vs the
+    # baseline before it counts as a regression. 0.02 = "2 accuracy points".
+    accuracy_drop_tolerance: float = Field(default=0.02, ge=0.0, le=1.0)
+    # p95 latency / estimated cost may grow by at most this fraction vs baseline.
+    latency_growth_tolerance: float = Field(default=0.20, ge=0.0)
+    cost_growth_tolerance: float = Field(default=0.20, ge=0.0)
+
     @classmethod
     def from_env(cls) -> "Config":
         """Build config from environment variables, falling back to defaults."""
@@ -81,4 +90,12 @@ class Config(BaseModel):
             overrides["judge_pass_threshold"] = int(threshold)
         if flakiness := os.getenv("EVAL_MOCK_FLAKINESS"):
             overrides["mock_flakiness"] = float(flakiness)
+        if path := os.getenv("EVAL_BASELINE_PATH"):
+            overrides["baseline_path"] = path
+        if acc := os.getenv("EVAL_ACCURACY_TOLERANCE"):
+            overrides["accuracy_drop_tolerance"] = float(acc)
+        if lat := os.getenv("EVAL_LATENCY_TOLERANCE"):
+            overrides["latency_growth_tolerance"] = float(lat)
+        if cost := os.getenv("EVAL_COST_TOLERANCE"):
+            overrides["cost_growth_tolerance"] = float(cost)
         return cls(**overrides)
