@@ -56,6 +56,21 @@ harness itself is prompt-agnostic — the triage task is just the showcase.
 known-good baseline beyond a tolerance. That's what makes it a realistic CI gate
 rather than a vanity metric.
 
+## See it work
+
+**A passing run** — every metric within tolerance, gate green, exit `0`:
+
+![A passing eval run: green GATE PASS banner, diff-vs-baseline all OK, 100% pass-rate](docs/img/report-green.png)
+
+**A regressed change blocks the PR** (the money shot) — `category_exact` pass-rate
+collapses, the gate goes red, and `eval run` exits `1`, failing the CI check:
+
+![A regressed eval run: red GATE FAIL banner, two regressed rows highlighted, category_exact down to 66%, flaky cases listed](docs/img/report-regressed.png)
+
+These are screenshots of the generated `report.html`. The second was produced with
+`EVAL_MOCK_FLAKINESS=0.4 EVAL_REPEATS=5 eval run` — a stand-in for a prompt/model change
+that regresses quality.
+
 ## Quickstart
 
 Requires Python 3.11+.
@@ -193,6 +208,15 @@ The LLM-as-judge is the part most teams get wrong, so the mitigations are explic
 eval judge-validate     # prints judge↔human agreement on datasets/judge_labeled.yaml
 ```
 
+**Honest note on judge reliability.** Against the 12-case hand-labelled set, the offline
+mock judge scores **75% exact agreement, 83% pass/fail agreement, Cohen's kappa 0.56
+(moderate)**. More telling than the headline is *where* it disagrees: it scored a
+hallucinated summary as adequate (missed invented detail), down-scored a verbose-but-
+correct one (verbosity bias), and was over-harsh on a vague one. A real judge model would
+likely agree more, but the point stands — a judge is only trustworthy to the extent it's
+been measured, and **a mis-calibrated judge silently blessing regressions is this
+system's main failure mode**. That's why the agreement number is reported, not assumed.
+
 ## CI
 
 Two GitHub Actions workflows (`.github/workflows/`):
@@ -235,7 +259,34 @@ Built in phases; each phase ends with something runnable.
 - [x] **Phase 7 — CI.** `eval-ci` workflow gates PRs (mock provider, no secrets) on
       the committed baseline and uploads the HTML report; optional `nightly-live-eval`
       runs the real API nightly. Green badge above.
-- [ ] Phase 8 — Polish: judge-validation writeup, batch-API cost note, screenshots.
+- [x] **Phase 8 — Polish.** README pass with demo screenshots, design-decisions and
+      judge-reliability writeups, and the batch-vs-sync cost note.
+
+## Design decisions
+
+- **Gate on regression, not perfection.** The number that matters is the *delta* from
+  the last reviewed-good baseline, within a tolerance — not an absolute accuracy bar.
+  That's what makes it a realistic CI gate instead of a vanity threshold.
+- **Variance is handled, not hidden.** Each case runs N times; the harness reports
+  pass-rate and flags flaky cases (`0 < passes < N`) rather than trusting one sample.
+  Gated metrics (pass-rate, p95 latency, per-call cost) are all repeat-invariant.
+- **The judge is validated, and the validation is honest.** Rubric-anchored scoring,
+  explicit bias guards, a cheaper judge model than the SUT, and a measured human-
+  agreement number (kappa) that's reported rather than assumed.
+- **Held-out dataset split.** Cases tagged `held_out: true` are kept separate from the
+  ones used while iterating on the prompt — the prompt-engineering equivalent of not
+  testing on your training data. They're evaluated and flagged so they're never tuned
+  against, giving an honest read on generalisation.
+- **Cost: sync gate now, Batch API for sweeps (documented lever).** The PR gate uses the
+  fast **synchronous** path on a small case set — you want an answer in seconds on a PR.
+  For large nightly/full sweeps, the [Message Batches API](https://docs.anthropic.com/en/docs/build-with-claude/batch-processing)
+  is ~50% cheaper and returns within 24h, which is the right trade-off when latency
+  doesn't matter. The client is structured behind one interface so a batch submit/poll
+  path slots in without touching the scorers or runner; the MVP ships the sync path and
+  treats batch as the documented scaling lever rather than building it speculatively.
+- **Single provider behind a narrow interface.** `complete(system, user) -> LLMResponse`,
+  with an offline mock as a drop-in — which is what makes zero-setup demos and
+  deterministic, secret-less CI possible.
 
 ## Deliberately out of scope
 

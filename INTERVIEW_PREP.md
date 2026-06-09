@@ -172,7 +172,27 @@ cases, lets me add scorers without touching the runner, and makes the
 - **Phase 7 (done):** two GitHub Actions workflows — `eval-ci` (per-PR gate, mock
   provider, no secrets, uploads report, exit-1 blocks the PR) and optional
   `nightly-live-eval` (real API, scheduled, self-skips without a secret). Green badge.
-- Phase 8: see README roadmap.
+- **Phase 8 (done):** README polish — demo screenshots (green run + regressed run that
+  blocks the PR, captured from `report.html`), consolidated design-decisions section,
+  honest judge-reliability writeup with the measured kappa, and the batch-vs-sync cost
+  note. Project complete.
+
+## Be ready to say what you deliberately did NOT build
+
+Owning the boundaries reads as judgment, not gaps:
+
+- **Batch API submit/poll** — documented as the cost lever for nightly sweeps but not
+  implemented. The sync path covers the PR gate (seconds matter on a PR); batch is the
+  ~50%-cheaper async path for large runs where 24h latency is fine. The client interface
+  is structured so it slots in without touching scorers/runner. I didn't build it
+  speculatively because there's no nightly full-sweep workload yet.
+- **A live PR-gate baseline** — the committed baseline is from the mock, so the per-PR
+  gate is a smoke + structural-regression gate. Catching *semantic* prompt regressions
+  needs a live run (nightly, or a live baseline + secret). Architecture supports it via
+  `EVAL_PROVIDER` + `EVAL_BASELINE_PATH`.
+- **Multi-provider, a dashboard, a labelling UI** — all explicitly out of scope (README).
+- **Semantic-similarity scorer** — `scorers/semantic.py` is in the spec's module map as
+  optional; structural + judge + property cover the SUT, so I left it out.
 
 ## Design decisions log (Phase 7 additions)
 
