@@ -62,8 +62,8 @@ rather than a vanity metric.
 
 ![A passing eval run: green GATE PASS banner, diff-vs-baseline all OK, 100% pass-rate](docs/img/report-green.png)
 
-**A regressed change blocks the PR** (the money shot) — `category_exact` pass-rate
-collapses, the gate goes red, and `eval run` exits `1`, failing the CI check:
+**A regressed change blocks the PR** — `category_exact` pass-rate collapses, the gate
+goes red, and `eval run` exits `1`, failing the CI check:
 
 ![A regressed eval run: red GATE FAIL banner, two regressed rows highlighted, category_exact down to 66%, flaky cases listed](docs/img/report-regressed.png)
 
@@ -119,9 +119,9 @@ to scorer instances. Three families:
 
 | Family | Implemented | Examples |
 |---|---|---|
-| **Structural** (deterministic, cheap) | ✅ Phase 2 | `category_exact` (exact match), `urgency_schema` (enum validity), `response_schema` (whole-response validation); `contains` primitive available |
-| **LLM-as-judge** (rubric-graded free text) | ✅ Phase 3 | `summary_judge` — grades the one-line summary 1–3 against a rubric, on a cheaper model |
-| **Property** (latency, cost, format, refusal) | ✅ Phase 4 | `format_valid` + `no_refusal` (applied to *every* call); latency p95 and token cost reported as metrics |
+| **Structural** (deterministic, cheap) | ✅ | `category_exact` (exact match), `urgency_schema` (enum validity), `response_schema` (whole-response validation); `contains` primitive available |
+| **LLM-as-judge** (rubric-graded free text) | ✅ | `summary_judge` — grades the one-line summary 1–3 against a rubric, on a cheaper model |
+| **Property** (latency, cost, format, refusal) | ✅ | `format_valid` + `no_refusal` (applied to *every* call); latency p95 and token cost reported as metrics |
 
 Scorers that aren't registered yet are **skipped, not failed**, and reported as such —
 so the dataset can declare the full intended set from day one. Structural and judge
@@ -178,8 +178,8 @@ Every `eval run` writes a machine report (`report.json`) and a human report
 (`report.html`) into `reports/` (gitignored — they're generated). Both are built from a
 single data structure, so they never drift. The HTML report contains:
 
-- a **gate banner** (PASS / FAIL / no-baseline) and the **diff-vs-baseline** table — the
-  part you screenshot;
+- a **gate banner** (PASS / FAIL / no-baseline) and the **diff-vs-baseline** table
+  (what improved, what regressed, by how much);
 - pass-rate by scorer, overall, and a flaky-cases callout;
 - property cards (latency mean/p95, tokens, cost);
 - per-case detail: the input, expected values, each scorer's pass-rate, and the model's
@@ -202,7 +202,7 @@ The LLM-as-judge is the part most teams get wrong, so the mitigations are explic
   (`judge_model`, default Haiku) than the SUT (default Opus).
 - **Validated against humans.** `eval judge-validate` runs the judge over a
   hand-labelled set and reports exact agreement, pass/fail agreement, and **Cohen's
-  kappa** (chance-corrected). A judge you haven't validated is just vibes.
+  kappa** (chance-corrected). A judge you haven't validated against humans is unproven.
 
 ```bash
 eval judge-validate     # prints judge↔human agreement on datasets/judge_labeled.yaml
@@ -235,32 +235,23 @@ Two GitHub Actions workflows (`.github/workflows/`):
 This split mirrors the harness's testing strategy: the mock keeps CI deterministic,
 free, and secret-less; live model behaviour is exercised nightly.
 
-## Project status
+## What's included
 
-Built in phases; each phase ends with something runnable.
-
-- [x] **Phase 1 — Skeleton + one case end to end.** Config, typed models, LLM client
-      (+ offline mock), YAML dataset loader, one exact-match scorer, CLI.
-- [x] **Phase 2 — Scorer registry + structural scorers.** Generic primitives
-      (exact / enum / contains / whole-response schema), a name→scorer registry that
-      cases opt into, and per-scorer + overall pass-rate aggregation.
-- [x] **Phase 3 — LLM-as-judge.** Rubric-graded `summary_judge` with verbosity/
-      self-preference bias guards, an offline mock judge, and `eval judge-validate`
-      reporting judge↔human agreement + Cohen's kappa on a hand-labelled set.
-- [x] **Phase 4 — Variance + properties.** N repeats with per-case pass-rate and
-      flaky-case detection; universal `format_valid`/`no_refusal` property scorers;
-      latency mean/p95, token totals, and estimated cost reported per run.
-- [x] **Phase 5 — Baseline + regression gating.** `baseline.json` snapshot,
-      `eval baseline update`, per-metric diff vs baseline within tolerances, and a
-      non-zero exit code on regression so CI can block a PR.
-- [x] **Phase 6 — Reporting.** `report.json` + a self-contained `report.html`
-      (Jinja2) from one data source: gate banner, diff-vs-baseline, per-scorer and
-      flaky breakdown, property cards, and per-case model output + judge reasoning.
-- [x] **Phase 7 — CI.** `eval-ci` workflow gates PRs (mock provider, no secrets) on
-      the committed baseline and uploads the HTML report; optional `nightly-live-eval`
-      runs the real API nightly. Green badge above.
-- [x] **Phase 8 — Polish.** README pass with demo screenshots, design-decisions and
-      judge-reliability writeups, and the batch-vs-sync cost note.
+- **Core harness** — typed config and data models, an Anthropic client with a drop-in
+  offline mock, a YAML golden-dataset loader, and the `eval` CLI.
+- **Scorer registry + structural scorers** — exact match, enum/schema validity,
+  contains, and whole-response validation; cases opt in by name.
+- **LLM-as-judge** — rubric-graded `summary_judge` on a cheaper model, with bias guards
+  and `eval judge-validate` for human-agreement (Cohen's kappa).
+- **Variance handling** — N repeats with per-case pass-rate and flaky-case detection.
+- **Property metrics** — universal `format_valid` / `no_refusal` checks plus latency
+  (mean/p95), token, and cost reporting.
+- **Baseline regression gating** — `baseline.json` snapshot, `eval baseline update`, a
+  per-metric diff within tolerances, and a non-zero exit code that blocks a PR.
+- **Reporting** — a self-contained `report.html` and machine-readable `report.json`
+  from a single data source.
+- **CI** — a per-PR GitHub Actions gate on the mock provider, plus an optional nightly
+  live-eval workflow.
 
 ## Design decisions
 
