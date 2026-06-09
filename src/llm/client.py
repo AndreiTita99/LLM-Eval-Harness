@@ -42,11 +42,19 @@ class AnthropicClient:
             self._client = anthropic.Anthropic()
         return self._client
 
-    def complete(self, system: str, user: str) -> LLMResponse:
+    def complete(
+        self,
+        system: str,
+        user: str,
+        *,
+        model: str | None = None,
+        max_tokens: int | None = None,
+    ) -> LLMResponse:
         client = self._ensure_client()
+        model = model or self.config.sut_model
         kwargs: dict[str, object] = {
-            "model": self.config.sut_model,
-            "max_tokens": self.config.max_tokens,
+            "model": model,
+            "max_tokens": max_tokens or self.config.max_tokens,
             "system": system,
             "messages": [{"role": "user", "content": user}],
         }
@@ -61,7 +69,7 @@ class AnthropicClient:
         except Exception as exc:  # surfaced as a failed result, not a crash
             return LLMResponse(
                 text="",
-                model=self.config.sut_model,
+                model=model,
                 latency_ms=(time.perf_counter() - start) * 1000,
                 error=f"{type(exc).__name__}: {exc}",
             )
@@ -70,7 +78,7 @@ class AnthropicClient:
         text = "".join(b.text for b in msg.content if getattr(b, "type", None) == "text")
         return LLMResponse(
             text=text,
-            model=getattr(msg, "model", self.config.sut_model),
+            model=getattr(msg, "model", model),
             latency_ms=latency_ms,
             input_tokens=getattr(msg.usage, "input_tokens", 0),
             output_tokens=getattr(msg.usage, "output_tokens", 0),
@@ -89,7 +97,14 @@ class MockClient:
 
     config: Config
 
-    def complete(self, system: str, user: str) -> LLMResponse:
+    def complete(
+        self,
+        system: str,
+        user: str,
+        *,
+        model: str | None = None,
+        max_tokens: int | None = None,
+    ) -> LLMResponse:
         import json
 
         start = time.perf_counter()

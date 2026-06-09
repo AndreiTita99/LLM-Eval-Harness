@@ -40,8 +40,19 @@ Four mitigations: (1) score against an explicit **rubric** with defined levels, 
 vague 1–10; (2) guard against known biases — verbosity (longer ≠ better),
 position (pairwise), self-preference; (3) use a **different, cheaper model** as the
 judge than the SUT to reduce self-preference and cost; (4) **validate against humans** —
-hand-label ~20 cases, run the judge, report agreement. A judge you haven't validated
-is just vibes. *(Lands in Phase 3.)*
+hand-label ~12 cases, run the judge, report agreement. A judge you haven't validated
+is just vibes. **Position bias doesn't apply here** — that's a pairwise-comparison
+artifact, and this judge grades a single output pointwise. (Built in Phase 3:
+`eval judge-validate` reports exact agreement, pass/fail agreement, and Cohen's kappa.)
+
+**Q: How did you actually measure judge reliability — and what did you find?**
+On the 12-case hand-labelled set, the mock judge gets 75% exact agreement, 83%
+pass/fail agreement, kappa 0.56 (moderate). More important than the numbers is
+*where* it disagrees: it scored a hallucinated summary as adequate (missed invented
+detail — j07), down-scored a verbose-but-correct summary (verbosity bias — j12), and
+was over-harsh on a vague one (j06). Those are the textbook judge failure modes, and
+the validation surfaces them instead of hiding them. With a real judge model I'd
+expect higher agreement; the methodology is identical either way.
 
 **Q: What's a regression here, and how does CI catch it?**
 `baseline.json` stores last-known-good aggregate scores. A run compares new scores
@@ -113,7 +124,26 @@ cases, lets me add scorers without touching the runner, and makes the
 - **Phase 2 (done):** Scorer registry + structural scorer primitives (exact / enum /
   contains / whole-response schema). Cases declare scorers by name; per-scorer and
   overall pass-rate aggregation; unknown scorers skipped and surfaced.
-- Phases 3–8: see README roadmap.
+- **Phase 3 (done):** LLM-as-judge (`summary_judge`) grading the summary 1–3 against a
+  rubric, on a cheaper model, with verbosity/self-preference guards. Offline mock
+  judge. `eval judge-validate` reports judge↔human agreement + Cohen's kappa on a
+  hand-labelled set (75% / 83% / 0.56 with the mock).
+- Phases 4–8: see README roadmap.
+
+## Design decisions log (Phase 3 additions)
+
+- **Judge engine vs judge scorer are separate.** `src/llm/judge.py` owns the
+  rubric, prompt, bias guards, and parsing → `JudgeResult`. `src/scorers/judge.py`
+  is a thin adapter to the `Scorer` interface. Keeps the grading logic testable
+  without the scorer plumbing, and the rubric reusable.
+- **Judge reuses the SUT client with a model override.** `complete(..., model=)`
+  rather than a second SDK wrapper — one place for latency/usage/error handling.
+- **Mock judge is intentionally biased.** It over-penalises length and can't see
+  hallucinations, so the human-agreement check has something real to catch. Honest
+  demo > flattering demo.
+- **Cohen's kappa, hand-rolled and dependency-free** (`_cohen_kappa_binary`). Being
+  able to explain *why* raw agreement is misleading (chance agreement when classes
+  are imbalanced) is a strong signal — kappa corrects for it.
 
 ## Things to be able to show live
 

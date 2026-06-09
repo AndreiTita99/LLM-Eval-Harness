@@ -11,7 +11,9 @@ schema) lives here — the scorer primitives themselves stay generic.
 
 from __future__ import annotations
 
+from ..llm.judge import Judge
 from .base import Scorer
+from .judge import SummaryJudge
 from .structural import EnumValid, ExactMatch, SchemaValid
 
 # --- Triage SUT vocabulary ---
@@ -46,14 +48,17 @@ class Registry:
         return sorted(self._scorers)
 
 
-def default_registry() -> Registry:
-    """Registry with the structural scorers wired up for the triage SUT.
+def default_registry(judge: Judge | None = None) -> Registry:
+    """Registry of scorers wired up for the triage SUT.
 
-    `summary_judge` is intentionally absent until phase 3 (LLM-as-judge); cases
-    that declare it have it skipped, not failed.
+    Structural scorers are always present. The `summary_judge` (LLM-as-judge) is
+    registered only when a judge is supplied; otherwise cases that declare it
+    have it skipped, not failed.
     """
     reg = Registry()
     reg.register(ExactMatch("category_exact", field="category"))
     reg.register(EnumValid("urgency_schema", field="urgency", allowed=ALLOWED_URGENCY))
     reg.register(SchemaValid("response_schema", spec=TRIAGE_SCHEMA))
+    if judge is not None:
+        reg.register(SummaryJudge("summary_judge", judge=judge, field="summary"))
     return reg

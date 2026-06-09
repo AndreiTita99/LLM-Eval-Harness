@@ -15,11 +15,14 @@ import sys
 from pathlib import Path
 
 from .config import Config
+from .llm.judge import make_judge
 from .models import RunSummary
 from .runner import load_cases, load_prompt, run
+from .validation import ValidationReport, load_labeled, validate_judge
 
 DEFAULT_DATASET = "datasets/triage.yaml"
 DEFAULT_PROMPT = "prompts/triage_v1.txt"
+DEFAULT_LABELED = "datasets/judge_labeled.yaml"
 
 
 def _print_summary(summary: RunSummary, config: Config) -> None:
@@ -54,6 +57,49 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_validation(report: ValidationReport, config: Config) -> None:
+    print(f"\nJudge validation    provider: {config.provider}    judge model: {config.judge_model}")
+    print(f"Pass threshold: score >= {report.threshold}    examples: {report.n}\n")
+
+    print(f"{'ID':<6} {'HUMAN':<6} {'JUDGE':<6} {'EXACT':<6} {'PASS/FAIL':<10} REASONING")
+    print("-" * 86)
+    for c in report.comparisons:
+        judge = "?" if c.judge_score is None else str(c.judge_score)
+        print(
+            f"{c.id:<6} {c.human_score:<6} {judge:<6} "
+            f"{('=' if c.agree_exact else 'x'):<6} "
+            f"{('agree' if c.agree_passfail else 'DIFFER'):<10} {c.reasoning[:40]}"
+        )
+
+    print("-" * 86)
+    print(f"\nExact agreement:     {report.exact_agreement * 100:.0f}%")
+    print(f"Pass/fail agreement: {report.passfail_agreement * 100:.0f}%")
+    print(f"Cohen's kappa:       {report.kappa:.2f}  ({_kappa_label(report.kappa)})")
+
+
+def _kappa_label(k: float) -> str:
+    if k < 0:
+        return "worse than chance"
+    if k < 0.2:
+        return "slight"
+    if k < 0.4:
+        return "fair"
+    if k < 0.6:
+        return "moderate"
+    if k < 0.8:
+        return "substantial"
+    return "almost perfect"
+
+
+def cmd_judge_validate(args: argparse.Namespace) -> int:
+    config = Config.from_env()
+    labeled = load_labeled(args.dataset)
+    judge = make_judge(config)
+    report = validate_judge(judge, labeled, threshold=config.judge_pass_threshold)
+    _print_validation(report, config)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="eval", description="CI for prompts.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -62,6 +108,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--dataset", default=DEFAULT_DATASET, type=Path)
     run_p.add_argument("--prompt", default=DEFAULT_PROMPT, type=Path)
     run_p.set_defaults(func=cmd_run)
+
+    jv_p = sub.add_parser(
+        "judge-validate",
+        help="Measure the judge's agreement with human labels on a labelled set.",
+    )
+    jv_p.add_argument("--dataset", default=DEFAULT_LABELED, type=Path)
+    jv_p.set_defaults(func=cmd_judge_validate)
 
     return parser
 

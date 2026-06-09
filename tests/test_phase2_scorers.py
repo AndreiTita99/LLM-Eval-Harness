@@ -67,28 +67,26 @@ def test_schema_valid_reports_each_violation():
 
 
 def test_registry_resolves_known_and_misses_unknown():
-    reg = default_registry()
+    reg = default_registry()  # no judge supplied
     assert reg.get("category_exact") is not None
-    assert reg.get("summary_judge") is None  # not registered until phase 3
+    assert reg.get("summary_judge") is None  # judge only registered when supplied
 
 
-def test_run_skips_unregistered_scorers_and_aggregates():
+def test_run_skips_truly_unregistered_scorers_and_aggregates():
     config = Config(provider="mock")
     cases = [
         EvalCase(
             id="t1",
             input="My card was charged twice for order 4471",
             expected={"category": "billing", "urgency": "high"},
-            scorers=["category_exact", "urgency_schema", "response_schema", "summary_judge"],
+            scorers=["category_exact", "urgency_schema", "response_schema", "nonexistent_scorer"],
         ),
     ]
     summary = run(cases, system_prompt="triage", config=config)
 
-    # summary_judge is skipped, the three structural scorers run.
-    assert summary.skipped_scorers == ["summary_judge"]
+    # An unknown scorer is skipped; the structural scorers still run.
+    assert summary.skipped_scorers == ["nonexistent_scorer"]
     assert {s.scorer for s in summary.scores} == {"category_exact", "urgency_schema", "response_schema"}
 
-    overall = summary.overall()
-    assert overall.total == 3
     by_scorer = {s.scorer: s for s in summary.by_scorer()}
     assert by_scorer["response_schema"].pass_rate == 1.0

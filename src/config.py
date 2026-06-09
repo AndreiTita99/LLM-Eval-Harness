@@ -39,11 +39,15 @@ class Config(BaseModel):
     # one-line change and the judge can differ from the SUT.
     sut_model: str = Field(default="claude-opus-4-8")
 
-    # The judge runs on a cheaper, different model than the SUT (phase 3) to
-    # reduce self-preference bias and cost.
+    # The judge runs on a cheaper, different model than the SUT to reduce
+    # self-preference bias and cost.
     judge_model: str = Field(default="claude-haiku-4-5")
 
     max_tokens: int = Field(default=1024)
+    # The judge emits a short {score, reasoning}; it needs little headroom.
+    judge_max_tokens: int = Field(default=512)
+    # Minimum rubric score (1..3) the judge must give for a summary to pass.
+    judge_pass_threshold: int = Field(default=2, ge=1, le=3)
 
     # Sampling temperature for the SUT. Left unset by default because the most
     # capable models (Opus 4.8/4.7) no longer expose temperature at all — so we
@@ -66,4 +70,6 @@ class Config(BaseModel):
             overrides["repeats"] = int(repeats)
         if temp := os.getenv("EVAL_SUT_TEMPERATURE"):
             overrides["sut_temperature"] = float(temp)
+        if threshold := os.getenv("EVAL_JUDGE_THRESHOLD"):
+            overrides["judge_pass_threshold"] = int(threshold)
         return cls(**overrides)

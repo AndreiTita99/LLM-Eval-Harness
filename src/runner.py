@@ -8,18 +8,19 @@ registry, N-repeats/variance, properties, baseline gating, and reporting.
 
 from __future__ import annotations
 
-import json
-import re
 from pathlib import Path
 
 import yaml
 
 from .config import Config
 from .llm import LLMResponse, make_client
+from .llm.judge import make_judge
 from .models import EvalCase, RunResult, RunSummary, Usage
+from .parsing import parse_json_output
 from .scorers.registry import Registry, default_registry
 
-_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+# Re-exported for callers/tests that import it from the runner.
+__all__ = ["load_cases", "load_prompt", "parse_json_output", "run"]
 
 
 def load_cases(path: str | Path) -> list[EvalCase]:
@@ -33,20 +34,6 @@ def load_cases(path: str | Path) -> list[EvalCase]:
 def load_prompt(path: str | Path) -> str:
     """Load the SUT system prompt."""
     return Path(path).read_text(encoding="utf-8")
-
-
-def parse_json_output(text: str) -> dict | None:
-    """Best-effort parse of a model's JSON response.
-
-    Tolerates ```json fences and surrounding whitespace. Returns None on failure
-    — format validity is a first-class metric (phase 4), not a crash.
-    """
-    cleaned = _FENCE_RE.sub("", text).strip()
-    try:
-        value = json.loads(cleaned)
-    except (json.JSONDecodeError, ValueError):
-        return None
-    return value if isinstance(value, dict) else None
 
 
 def _to_result(case: EvalCase, resp: LLMResponse) -> RunResult:
@@ -73,7 +60,7 @@ def run(
     names to scorer instances. Names with no registry entry yet (e.g.
     `summary_judge` before phase 3) are recorded as skipped, not failed.
     """
-    registry = registry or default_registry()
+    registry = registry or default_registry(judge=make_judge(config))
     client = make_client(config)
     summary = RunSummary(total_cases=len(cases))
     skipped: set[str] = set()

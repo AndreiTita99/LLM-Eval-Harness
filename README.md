@@ -88,6 +88,7 @@ All run settings are environment-driven (see `src/config.py`):
 | `EVAL_JUDGE_MODEL` | `claude-haiku-4-5` | Cheaper, different model for the judge |
 | `EVAL_REPEATS` | `3` | How many times to run each case (variance handling) |
 | `EVAL_SUT_TEMPERATURE` | unset | Only sent to models that accept it |
+| `EVAL_JUDGE_THRESHOLD` | `2` | Minimum rubric score (1–3) for the summary judge to pass |
 
 ## Scorers
 
@@ -97,11 +98,28 @@ to scorer instances. Three families:
 | Family | Implemented | Examples |
 |---|---|---|
 | **Structural** (deterministic, cheap) | ✅ Phase 2 | `category_exact` (exact match), `urgency_schema` (enum validity), `response_schema` (whole-response validation); `contains` primitive available |
-| **LLM-as-judge** (rubric-graded free text) | ⏳ Phase 3 | `summary_judge` — declared in the dataset, skipped until registered |
+| **LLM-as-judge** (rubric-graded free text) | ✅ Phase 3 | `summary_judge` — grades the one-line summary 1–3 against a rubric, on a cheaper model |
 | **Property** (latency, cost, format, refusal) | ⏳ Phase 4 | — |
 
 Scorers that aren't registered yet are **skipped, not failed**, and reported as such —
 so the dataset can declare the full intended set from day one.
+
+### The judge, done responsibly
+
+The LLM-as-judge is the part most teams get wrong, so the mitigations are explicit:
+
+- **Explicit 1–3 rubric** with defined level anchors, not a vague "rate 1–10".
+- **Verbosity-bias guard** — the prompt states that a concise correct summary scores
+  as high as a verbose one.
+- **Self-preference guard** — the judge runs on a different, cheaper model
+  (`judge_model`, default Haiku) than the SUT (default Opus).
+- **Validated against humans.** `eval judge-validate` runs the judge over a
+  hand-labelled set and reports exact agreement, pass/fail agreement, and **Cohen's
+  kappa** (chance-corrected). A judge you haven't validated is just vibes.
+
+```bash
+eval judge-validate     # prints judge↔human agreement on datasets/judge_labeled.yaml
+```
 
 ## Project status
 
@@ -112,7 +130,9 @@ Built in phases; each phase ends with something runnable.
 - [x] **Phase 2 — Scorer registry + structural scorers.** Generic primitives
       (exact / enum / contains / whole-response schema), a name→scorer registry that
       cases opt into, and per-scorer + overall pass-rate aggregation.
-- [ ] Phase 3 — LLM-as-judge with bias guards and human-agreement validation.
+- [x] **Phase 3 — LLM-as-judge.** Rubric-graded `summary_judge` with verbosity/
+      self-preference bias guards, an offline mock judge, and `eval judge-validate`
+      reporting judge↔human agreement + Cohen's kappa on a hand-labelled set.
 - [ ] Phase 4 — Variance (N repeats, pass-rate) + property metrics (latency, cost).
 - [ ] Phase 5 — Baseline tracking + regression gating + non-zero exit codes.
 - [ ] Phase 6 — HTML + JSON reports with a diff-vs-baseline section.
