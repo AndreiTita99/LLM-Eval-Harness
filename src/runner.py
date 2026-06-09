@@ -16,7 +16,8 @@ import yaml
 
 from .config import Config
 from .llm import LLMResponse, make_client
-from .models import CaseScore, EvalCase, RunResult, RunSummary, Usage
+from .models import EvalCase, RunResult, RunSummary, Usage
+from .scorers.registry import Registry, default_registry
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
@@ -60,27 +61,33 @@ def _to_result(case: EvalCase, resp: LLMResponse) -> RunResult:
     )
 
 
-def score_category_exact(case: EvalCase, result: RunResult) -> CaseScore:
-    """Hardcoded phase-1 scorer: does parsed `category` equal the expected value?"""
-    expected = case.expected.get("category")
-    actual = (result.parsed or {}).get("category")
-    passed = expected is not None and actual == expected
-    return CaseScore(
-        case_id=case.id,
-        scorer="category_exact",
-        passed=passed,
-        score=1.0 if passed else 0.0,
-        detail=f"expected={expected!r} actual={actual!r}",
-    )
+def run(
+    cases: list[EvalCase],
+    system_prompt: str,
+    config: Config,
+    registry: Registry | None = None,
+) -> RunSummary:
+    """Run every case once through the SUT and apply its declared scorers.
 
-
-def run(cases: list[EvalCase], system_prompt: str, config: Config) -> RunSummary:
-    """Run every case once through the SUT and apply the phase-1 scorer."""
+    Each case names the scorers that apply to it; the registry resolves those
+    names to scorer instances. Names with no registry entry yet (e.g.
+    `summary_judge` before phase 3) are recorded as skipped, not failed.
+    """
+    registry = registry or default_registry()
     client = make_client(config)
     summary = RunSummary(total_cases=len(cases))
+    skipped: set[str] = set()
+
     for case in cases:
         resp = client.complete(system=system_prompt, user=case.input)
         result = _to_result(case, resp)
         summary.results.append(result)
-        summary.scores.append(score_category_exact(case, result))
+        for scorer_name in case.scorers:
+            scorer = registry.get(scorer_name)
+            if scorer is None:
+                skipped.add(scorer_name)
+                continue
+            summary.scores.append(scorer.score(case, result))
+
+    summary.skipped_scorers = sorted(skipped)
     return summary

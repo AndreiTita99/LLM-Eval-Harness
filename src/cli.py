@@ -23,20 +23,26 @@ DEFAULT_PROMPT = "prompts/triage_v1.txt"
 
 
 def _print_summary(summary: RunSummary, config: Config) -> None:
-    passed = sum(1 for s in summary.scores if s.passed)
-    total = len(summary.scores)
     print(f"\nProvider: {config.provider}    SUT model: {config.sut_model}")
     print(f"Cases: {summary.total_cases}\n")
 
     print(f"{'CASE':<12} {'SCORER':<16} {'RESULT':<7} DETAIL")
-    print("-" * 72)
+    print("-" * 78)
     for score in summary.scores:
         mark = "PASS" if score.passed else "FAIL"
         print(f"{score.case_id:<12} {score.scorer:<16} {mark:<7} {score.detail}")
 
-    pct = (passed / total * 100) if total else 0.0
-    print("-" * 72)
-    print(f"\n{passed}/{total} passed ({pct:.0f}%)")
+    print("\nPer-scorer pass-rate")
+    print("-" * 78)
+    for stat in summary.by_scorer():
+        print(f"  {stat.scorer:<18} {stat.passed:>3}/{stat.total:<3} ({stat.pass_rate * 100:.0f}%)")
+
+    if summary.skipped_scorers:
+        print(f"\nSkipped (not registered yet): {', '.join(summary.skipped_scorers)}")
+
+    overall = summary.overall()
+    print("-" * 78)
+    print(f"\nOverall: {overall.passed}/{overall.total} checks passed ({overall.pass_rate * 100:.0f}%)")
 
 
 def cmd_run(args: argparse.Namespace) -> int:

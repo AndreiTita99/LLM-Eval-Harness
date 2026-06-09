@@ -10,35 +10,35 @@
   expected:
     category: billing
     urgency: high
-  scorers: [category_exact, urgency_schema, summary_judge]
+  scorers: [category_exact, urgency_schema, response_schema, summary_judge]
 
 - id: ticket_002
   input: "How do I change the email address on my account?"
   expected:
     category: account
     urgency: low
-  scorers: [category_exact, urgency_schema, summary_judge]
+  scorers: [category_exact, urgency_schema, response_schema, summary_judge]
 
 - id: ticket_003
   input: "The app crashes every time I tap the export button. I'm completely blocked."
   expected:
     category: technical
     urgency: high
-  scorers: [category_exact, urgency_schema, summary_judge]
+  scorers: [category_exact, urgency_schema, response_schema, summary_judge]
 
 - id: ticket_004
   input: "When will my package arrive? The tracking page hasn't updated in three days."
   expected:
     category: shipping
     urgency: medium
-  scorers: [category_exact, urgency_schema, summary_judge]
+  scorers: [category_exact, urgency_schema, response_schema, summary_judge]
 
 - id: ticket_005
   input: "Do you offer a student discount on the annual plan?"
   expected:
     category: general
     urgency: low
-  scorers: [category_exact, urgency_schema, summary_judge]
+  scorers: [category_exact, urgency_schema, response_schema, summary_judge]
 
 # --- Held-out cases (not used while iterating on the prompt) ---
 
@@ -47,7 +47,7 @@
   expected:
     category: billing
     urgency: high
-  scorers: [category_exact, urgency_schema, summary_judge]
+  scorers: [category_exact, urgency_schema, response_schema, summary_judge]
   held_out: true
 
 - id: ticket_h02
@@ -55,5 +55,5 @@
   expected:
     category: billing
     urgency: low
-  scorers: [category_exact, urgency_schema, summary_judge]
+  scorers: [category_exact, urgency_schema, response_schema, summary_judge]
   held_out: true

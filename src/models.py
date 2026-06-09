@@ -65,9 +65,38 @@ class CaseScore(BaseModel):
     detail: str = ""
 
 
+class ScorerStats(BaseModel):
+    """Pass-rate for a single scorer across all cases it was applied to."""
+
+    scorer: str
+    passed: int
+    total: int
+
+    @property
+    def pass_rate(self) -> float:
+        return self.passed / self.total if self.total else 0.0
+
+
 class RunSummary(BaseModel):
     """Aggregate metrics for a whole run (filled out in later phases)."""
 
     total_cases: int = 0
     results: list[RunResult] = Field(default_factory=list)
     scores: list[CaseScore] = Field(default_factory=list)
+    # Declared scorers that no registry entry exists for yet (e.g. summary_judge
+    # before phase 3). Skipped, not failed — surfaced so they're not silent.
+    skipped_scorers: list[str] = Field(default_factory=list)
+
+    def by_scorer(self) -> list[ScorerStats]:
+        """Per-scorer pass counts, ordered by scorer name."""
+        agg: dict[str, list[int]] = {}
+        for s in self.scores:
+            bucket = agg.setdefault(s.scorer, [0, 0])
+            bucket[0] += int(s.passed)
+            bucket[1] += 1
+        return [ScorerStats(scorer=name, passed=p, total=t) for name, (p, t) in sorted(agg.items())]
+
+    def overall(self) -> ScorerStats:
+        """Pass count across every (case, scorer) pair in the run."""
+        passed = sum(1 for s in self.scores if s.passed)
+        return ScorerStats(scorer="overall", passed=passed, total=len(self.scores))

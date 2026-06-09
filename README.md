@@ -89,13 +89,29 @@ All run settings are environment-driven (see `src/config.py`):
 | `EVAL_REPEATS` | `3` | How many times to run each case (variance handling) |
 | `EVAL_SUT_TEMPERATURE` | unset | Only sent to models that accept it |
 
+## Scorers
+
+Cases declare which scorers apply to them by name; a registry resolves those names
+to scorer instances. Three families:
+
+| Family | Implemented | Examples |
+|---|---|---|
+| **Structural** (deterministic, cheap) | ✅ Phase 2 | `category_exact` (exact match), `urgency_schema` (enum validity), `response_schema` (whole-response validation); `contains` primitive available |
+| **LLM-as-judge** (rubric-graded free text) | ⏳ Phase 3 | `summary_judge` — declared in the dataset, skipped until registered |
+| **Property** (latency, cost, format, refusal) | ⏳ Phase 4 | — |
+
+Scorers that aren't registered yet are **skipped, not failed**, and reported as such —
+so the dataset can declare the full intended set from day one.
+
 ## Project status
 
 Built in phases; each phase ends with something runnable.
 
 - [x] **Phase 1 — Skeleton + one case end to end.** Config, typed models, LLM client
       (+ offline mock), YAML dataset loader, one exact-match scorer, CLI.
-- [ ] Phase 2 — Scorer registry + structural scorers (schema / exact / contains / enum).
+- [x] **Phase 2 — Scorer registry + structural scorers.** Generic primitives
+      (exact / enum / contains / whole-response schema), a name→scorer registry that
+      cases opt into, and per-scorer + overall pass-rate aggregation.
 - [ ] Phase 3 — LLM-as-judge with bias guards and human-agreement validation.
 - [ ] Phase 4 — Variance (N repeats, pass-rate) + property metrics (latency, cost).
 - [ ] Phase 5 — Baseline tracking + regression gating + non-zero exit codes.
